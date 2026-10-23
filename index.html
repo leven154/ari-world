@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ari World">
+<meta name="theme-color" content="#000000">
 <meta name="description" content="Ari World: a live looper and colour canvas for making music in your browser.">
 <title>Ari World</title>
 <style>
@@ -21,7 +24,8 @@ body{color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.4
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
 .wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:30px}
 button,select,input{font:inherit;color:inherit}
-button{cursor:pointer;border-radius:0}
+button{cursor:pointer;border-radius:0;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+select,input{touch-action:manipulation}
 :focus-visible{outline:1px solid var(--fg);outline-offset:2px}
 input[type=range]{accent-color:var(--fg);width:100px}
 
@@ -71,7 +75,22 @@ select{background:var(--bg);border:1px solid var(--line2);border-radius:0;paddin
 .deck{--gap:6px;--lblw:76px;
   --u:calc(var(--scale,1) * clamp(22px,calc((min(100vw,1120px) - 2*max(16px,env(safe-area-inset-left,0px)) - var(--lblw) - var(--gap) - 11*var(--gap))/12),70px));
   display:flex;flex-direction:column;gap:var(--gap);overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:none}
-@media (max-width:640px){.deck{--lblw:0px;--gap:3px}.krow .lbl,.krow .off,.cap .k,.cap.inst .s{display:none}.cap{height:calc(46px * var(--scale,1));flex:1 1 0;width:auto;min-width:0}.cap .m{font-size:10px;white-space:normal;line-height:1.05}.cap .s{font-size:9px}.cap.space{flex:3 1 0}}
+@media (max-width:640px){
+  .deck{--lblw:0px;--gap:5px}
+  .krow{flex-wrap:wrap}
+  .krow .lbl,.krow .off,.deck .cap .k{display:none}
+  .deck .cap{height:calc(54px * var(--scale,1));width:auto;min-width:0;flex:0 0 calc((100% - 5*var(--gap))/6)}
+  .krow:nth-child(2) .cap,.krow:nth-child(3) .cap{flex-basis:calc((100% - 4*var(--gap))/5)}
+  .krow:nth-child(4) .cap{flex-basis:calc((100% - 3*var(--gap))/4)}
+  .krow:nth-child(5) .cap{flex:1 1 0;height:calc(48px * var(--scale,1))}
+  .krow:nth-child(5) .cap.space{flex:2 1 0}
+  .deck .cap .m{font-size:12px;white-space:normal;line-height:1.05}
+  .deck .cap .s{font-size:10px}
+  .top{position:static}
+  .brand{flex-wrap:wrap;row-gap:10px}
+  .file-bar{margin-left:0}
+  .tabs{margin-left:10px}
+}
 .krow{display:flex;gap:var(--gap);align-items:stretch}
 .lbl{width:var(--lblw);flex:none;display:flex;flex-direction:column;justify-content:center;font-size:10px;letter-spacing:.06em;color:var(--muted);line-height:1.3}
 .lbl b{color:var(--fg);font-weight:700}
@@ -336,6 +355,15 @@ const spb=()=>60/S.bpm;
 /* ---------- audio ---------- */
 let recDest=null;
 let ctx,master,filt,delayNode,revIn,dlyIn,noiseBuf;const buses=[],liveBuses={},trackNodes=new Map();
+let iosUnlocked=false;
+function unlockIOS(){if(iosUnlocked||!ctx)return;iosUnlocked=true;
+  try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(_){}
+  try{const b=ctx.createBuffer(1,1,22050),s=ctx.createBufferSource();s.buffer=b;s.connect(ctx.destination);s.start(0);}catch(_){}
+  // A silent looping <audio> element puts iPhone audio in "media" mode, so sound plays even with the ring/silent switch on.
+  try{const sr=8000,n=sr/2,buf=new ArrayBuffer(44+n*2),v=new DataView(buf),w=(o,t)=>{for(let i=0;i<t.length;i++)v.setUint8(o+i,t.charCodeAt(i));};
+    w(0,'RIFF');v.setUint32(4,36+n*2,true);w(8,'WAVE');w(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,n*2,true);
+    const a=new Audio(URL.createObjectURL(new Blob([buf],{type:'audio/wav'})));a.loop=true;a.setAttribute('playsinline','');a.volume=0.01;const pr=a.play();if(pr&&pr.catch)pr.catch(()=>{});}catch(_){}}
+['touchend','pointerup','click','keydown'].forEach(ev=>document.addEventListener(ev,()=>{if(!ctx)return;if(ctx.state!=='running')ctx.resume();unlockIOS();},{passive:true,capture:true}));
 function initAudio(){
   if(ctx){if(ctx.state==='suspended')ctx.resume();return;}
   ctx=new (window.AudioContext||window.webkitAudioContext)();
@@ -479,7 +507,7 @@ function padHit(which,x,y){const v=S['tap'+which],[t,a]=v.split(':'),code='pad'+
   const r=pad.getBoundingClientRect(),sp=document.createElement('span');sp.className='ripple';sp.style.left=(x-r.left)+'px';sp.style.top=(y-r.top)+'px';pad.appendChild(sp);setTimeout(()=>sp.remove(),460);
   pad.classList.add('flash');clearTimeout(pad._t);pad._t=setTimeout(()=>pad.classList.remove('flash'),120);}
 pad.addEventListener('contextmenu',e=>e.preventDefault());
-pad.addEventListener('pointerdown',e=>{e.preventDefault();const which=(e.button===2||e.ctrlKey)?'B':'A';padPtr.set(e.pointerId,which);padHit(which,e.clientX,e.clientY);});
+pad.addEventListener('pointerdown',e=>{e.preventDefault();let which=(e.button===2||e.ctrlKey)?'B':'A';if(e.pointerType==='touch'){const rc=pad.getBoundingClientRect();which=e.clientX<rc.left+rc.width/2?'A':'B';}padPtr.set(e.pointerId,which);padHit(which,e.clientX,e.clientY);});
 const padEnd=e=>{const w=padPtr.get(e.pointerId);if(w){padPtr.delete(e.pointerId);up('pad'+w);}};
 pad.addEventListener('pointerup',padEnd);pad.addEventListener('pointercancel',padEnd);pad.addEventListener('pointerleave',padEnd);
 
@@ -781,6 +809,8 @@ $('#cvSend').onclick=()=>{const layers=canvasLayers();const b=$('#cvSend');if(!l
 function showPage(pg){$('#pageStudio').hidden=pg!=='studio';$('#pageCanvas').hidden=pg!=='canvas';[...$('#tabs').children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.page===pg));
   try{history.replaceState(null,'',pg==='canvas'?'#canvas':'#studio');}catch(_){}
   if(pg==='canvas')drawCanvas(posNow());else drawLanes(posNow());}
+if(window.matchMedia&&matchMedia('(pointer:coarse)').matches){const sm=pad.querySelectorAll('small');if(sm[0])sm[0].textContent='TAP LEFT SIDE';if(sm[1])sm[1].textContent='TAP RIGHT SIDE';
+  document.querySelectorAll('#tapSec .ctl > span').forEach((el,i)=>el.textContent=i?'Right side':'Left side');const p=$('#tapSec .mod-h p');if(p)p.textContent='Tap the left side for one sound and the right side for the other. Both record like the keys do.';}
 $('#tabs').onclick=e=>{const b=e.target.closest('[data-page]');if(b)showPage(b.dataset.page);};
 (function cvLoop(){if(playing&&ctx&&!$('#pageCanvas').hidden){const b=beatAt(ctx.currentTime);drawCanvas(b>=0?b:null);}requestAnimationFrame(cvLoop);})();
 window.addEventListener('resize',()=>drawCanvas(posNow()));
